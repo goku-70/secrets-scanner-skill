@@ -1,0 +1,16 @@
+{
+  "type": "marketplace",
+  "name": "devops-secrets-scanner",
+  "description": "Claude Code skill to scan codebases for hardcoded secrets, credentials, and sensitive data in application code and IaC (Terraform, Terragrunt, Helm, Kubernetes, Ansible and more).",
+  "owner": {
+    "name": "Gokulnath Gopinath",
+    "github": "goku-70"
+  },
+  "plugins": [
+    {
+      "name": "secrets-scanner",
+      "description": "Scan any codebase for hardcoded secrets, API keys, tokens, and credentials before pushing to GitHub.",
+      "source": "https://github.com/goku-70/secrets-scanner-skill"
+    }
+  ]
+}

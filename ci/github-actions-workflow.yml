@@ -1,0 +1,141 @@
+name: Secrets Scanner
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+on:
+  # Automated: runs on every PR targeting main or develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+  # Automated: runs on every push to main (post-merge check)
+  push:
+    branches:
+      - main
+
+  # Manual: can be triggered from GitHub Actions UI with optional path input
+  workflow_dispatch:
+    inputs:
+      scan_path:
+        description: "Path to scan (default: entire repo)"
+        required: false
+        default: "."
+      mode:
+        description: "Scan mode: shell (fast, no API key) or claude (intelligent, requires ANTHROPIC_API_KEY)"
+        required: false
+        default: "shell"
+        type: choice
+        options:
+          - shell
+          - claude
+
+# ── Permissions ────────────────────────────────────────────────────────────────
+permissions:
+  contents: read
+  pull-requests: write    # needed to post PR comments
+
+# ── Jobs ──────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── Job 1: Shell-based scan (automated, runs on every PR/push) ──────────────
+  secrets-scan-shell:
+    name: Secrets Scan (Shell)
+    runs-on: ubuntu-latest
+    # Run on automated triggers, or manual trigger with mode=shell
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.mode == 'shell'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download scan script
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/goku-70/secrets-scanner-skill/main/ci/scan.sh \
+            -o scan.sh
+          chmod +x scan.sh
+
+      - name: Run secrets scan
+        id: scan
+        run: |
+          SCAN_PATH="${{ github.event.inputs.scan_path || '.' }}"
+          ./scan.sh "$SCAN_PATH" | tee scan-results.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrets-scan-results-shell
+          path: scan-results.txt
+          retention-days: 30
+
+      - name: Post PR comment with results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('scan-results.txt', 'utf8');
+            const passed = !results.includes('CRITICAL') && !results.includes('HIGH');
+            const icon = passed ? '✅' : '❌';
+            const body = `## ${icon} Secrets Scan Results\n\n\`\`\`\n${results}\n\`\`\`\n\n*Powered by [secrets-scanner](https://github.com/goku-70/secrets-scanner-skill)*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail build on CRITICAL or HIGH findings
+        if: contains(steps.scan.outputs.exit_code, '1')
+        run: |
+          echo "Build failed — CRITICAL or HIGH severity secrets detected."
+          exit 1
+
+  # ── Job 2: Claude Code scan (manual only, requires ANTHROPIC_API_KEY) ────────
+  secrets-scan-claude:
+    name: Secrets Scan (Claude — Intelligent)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'claude'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install secrets-scanner skill
+        run: |
+          mkdir -p ~/.claude/commands
+          curl -fsSL https://raw.githubusercontent.com/goku-70/secrets-scanner-skill/main/skills/secrets-scanner/SKILL.md \
+            -o ~/.claude/commands/secrets-scanner.md
+
+      - name: Run intelligent secrets scan
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          SCAN_PATH="${{ github.event.inputs.scan_path || '.' }}"
+          claude -p "/secrets-scanner:secrets-scanner $SCAN_PATH" \
+            --output-format text | tee scan-results.txt
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrets-scan-results-claude
+          path: scan-results.txt
+          retention-days: 30
+
+      - name: Fail build on CRITICAL or HIGH findings
+        run: |
+          if grep -q "CRITICAL\|HIGH" scan-results.txt; then
+            echo "Build failed — CRITICAL or HIGH severity secrets detected."
+            exit 1
+          fi

@@ -1,0 +1,14 @@
+{
+  "name": "secrets-scanner",
+  "description": "Scans codebases for hardcoded secrets, credentials, API keys, and sensitive data across all IaC tools (Terraform, Terragrunt, Pulumi, CloudFormation, CDK, Helm, Ansible, Kubernetes, Bicep) and all cloud platforms (AWS, GCP, Azure, DigitalOcean, Oracle Cloud, IBM Cloud, Alibaba Cloud, Cloudflare).",
+  "version": "2.0.0",
+  "author": {
+    "name": "Gokulnath Gopinath"
+  },
+  "homepage": "https://github.com/goku-70/secrets-scanner-skill",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/goku-70/secrets-scanner-skill.git"
+  },
+  "license": "MIT"
+}
